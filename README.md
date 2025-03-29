@@ -1,5 +1,5 @@
 ## Volatility-Modeling-in-R
-#libraries required libraries
+## libraries required libraries
 library(quantmod)
 library(urca)
 library(PerformanceAnalytics)
@@ -28,7 +28,7 @@ plot.zoo(FTSE, main = "FTSE Daily prices",
         lwd = 2,
         col = "blue")
         
-#Stationarity check 
+## Stationarity check 
 adf_FTSE = ur.df(FTSE, type = "drift", selectlags = "AIC")
 summary(adf_FTSE)
 
@@ -42,13 +42,13 @@ plot.zoo(ret.FTSE, lwd = 2, col = "blue")
 adf2_FTSE = ur.df(ret.FTSE, type = "drift", selectlags = "AIC")
 summary(adf2_FTSE)
 
-#Descriptive statistics
+## Descriptive statistics
 summary(ret.FTSE)
 skewness(ret.FTSE)
 kurtosis(ret.FTSE)
 sd(ret.FTSE)
 
-##checking normality of returns
+## checking normality of returns
 #Histogram of log returns with normal distribution overly 
 hist(ret.FTSE, prob = T, breaks = 100,
       main = "FTSE 100 Log Returns Histogram",
@@ -71,7 +71,7 @@ pacf(ret.FTSE)
 #Perform Ljung-Box test autocorrelation in returns
 Box.test(ret.FTSE, lag = 10, type = "Ljung-Box", fitdf = 0)
 
-#Fitting ARIMA model
+## Fitting ARIMA model
 fit <- auto.arima(ret.FTSE, ic = "aic", stepwise = FALSE, approximation = FALSE)
 summary(fit)
 
@@ -88,12 +88,12 @@ Box.test(residuals^2, lag = 10, type = "Ljung-Box", fitdf = 0)
 #check for ARCH effects 
 ArchTest(ret.FTSE)
 
-##ARIMA-GARCH model fitting
+## ARIMA-GARCH model fitting
 #Checking for the lags for GARCH
 acf(residuals^2, main="ACF of Squared Residuals")
 pacf(residuals^2, main="PACF of Squared Residuals")
 
-# Define different ARIMA-GARCH model specification
+#Define different ARIMA-GARCH model specification
 spec1 <- ugarchspec(
   variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
   mean.model = list(armaOrder = c(3, 2), include.mean = FALSE),
@@ -120,7 +120,7 @@ fit.garch.2 <- ugarchfit(spec = spec2, data = ret.FTSE)
 fit.garch.3 <- ugarchfit(spec = spec3, data = ret.FTSE)
 fit.garch.4 <- ugarchfit(spec = spec4, data = ret.FTSE)
 
-##Model selection using information critarion
+## Model selection using information critarion
 #model.list = list("garch(1,1)" = fit.garch.1,
                   "garch(2,1)" = fit.garch.2,
                   "garch(1,2)" = fit.garch.3,
