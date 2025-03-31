@@ -1,0 +1,190 @@
+---
+title: "Volatility Modeling in R: FTSE 100 Analysis"
+output: html_document
+date: "2025-03-29"
+---
+
+I’ve recently started learning financial econometrics using R, and I’m excited to apply my skills to real-world stock market data. For my first analysis, I explored FTSE100 to examine volatility trends over the past 5 years. I used ARIMA-GARCH model for forecasting since the data exhibited autocorrelation and volatility. 
+
+**libraries required**
+```{r}
+library(quantmod)
+library(urca)
+library(PerformanceAnalytics)
+library(moments)
+library(tseries)
+library(forecast)
+library(FinTS)
+library(rugarch)
+```
+**Retrieve FTSE 100 stock index data**
+```{r}
+getSymbols("^FTSE",from = "2020-01-01", to = Sys.Date())
+```
+**Checking and removing missing values**
+```{r}
+sum(is.na(FTSE))
+FTSE <- na.omit(FTSE)
+FTSE <- Ad(FTSE)
+```
+Plot of the daily prices to check for trends and basic understanding of the time series data
+```{r}
+plot.zoo(FTSE, main = "FTSE Daily prices",
+        xlab = "Time",
+        ylab = "Prices",
+        lwd = 2,
+        col = "blue")
+```
+The plot shows an upward trend in prices, which indicates non-stationarity. The significant drop in early 2020 is likely due to COVID 19.
+
+**Stationarity test**
+
+Although it is obvious from the time series plot of FTSE100 prices that data is not stationary. We still need to check statistically. We applied Augmented Dickey Fuller test.
+```{r}
+adf_FTSE = ur.df(FTSE, type = "drift", selectlags = "AIC")
+summary(adf_FTSE)
+```
+The p-value is 0.3044 (greater than 0.05) and also the test - statistics of -1.2808 is greater than the 3 critical values, hence we fail to reject the null hypothesis that the data is not stationary. 
+
+**Calculate log returns**
+
+We convert the non-stationary data into a stationary time series by calculating log returns.
+```{r}
+ret.FTSE = Return.calculate(FTSE, method = "log")[-1]
+plot.zoo(ret.FTSE, lwd = 2, col = "blue")
+
+#Stationary test of log returns
+adf2_FTSE = ur.df(ret.FTSE, type = "drift", selectlags = "AIC")
+summary(adf2_FTSE)
+```
+From the log returns plot, the trend in the data has been removed. The likely shock from COVID 19 is seen in the volatility clustering around 2020. The volatility stabilizes but remains time varying. The ADF test also indicates a p-value close to zero and the 3 critical values are greater than the test statistic, reject the null hypothesis that the data is not stationary.
+
+**Descriptive stats**
+```{r}
+summary(ret.FTSE)
+skewness(ret.FTSE)
+kurtosis(ret.FTSE)
+sd(ret.FTSE)
+```
+The distribution and variability of the returns can be seen from the measures provided. The mean(0.00009824) and median(0.0006265) returns are centered around zero. 
+Daily returns are between -0.1151 and 0.08666. The returns are negatively skewed (-1.19), which indicates drops are more severe than rises. 
+High value of kurtosis (19.69) suggests that return are more likely to deviate from normal distribution.
+The standard deviation of returns of 0.0108 indicates a small volatility in daily returns. 
+
+**Checking normality of returns**
+```{r}
+hist(ret.FTSE, prob = T, breaks = 100,
+      main = "FTSE 100 Log Returns Histogram",
+      col = "cornflowerblue")
+mu<-mean(ret.FTSE)
+sigma<-sd(ret.FTSE)
+x<-seq(min(ret.FTSE),max(ret.FTSE),length=80)
+y<-dnorm(x,mu,sigma)
+lines(x,y,lwd=2,col="red")
+
+#Jarque-Bera test for normality
+jarque.bera.test(ret.FTSE)
+```
+The histogram appears to be left skewed as confirmed from the descriptive statistics. Since the p-value of the Jarque-Bera test is close to zero, we reject the null hypothesis that the data is normally distributed.
+```{r}
+#Autocorrelation and Partial autocorrelation plot of returns
+acf(ret.FTSE, main = "ACF of FTSE returns")
+pacf(ret.FTSE, main = "PACF of FTSE returns")
+
+#Autocorrelation check of returns
+Box.test(ret.FTSE, lag = 10, type = "Ljung-Box", fitdf = 0)
+```
+The ACF and PACF plots of returns have some significant spikes, but most lags are within the confidence band. However, the Ljung-Box test shows a p-value less than 0.05, hence we reject the null hypothesis of no autocorrelation.
+
+This suggests that the returns has some predictable structure. The presence of autocorrelation may distort the ARCH test result.
+
+We would use ARIMA model to remove the autocorrelation and apply the ARCH effect on the residuals.
+
+**Fitting ARIMA model**
+```{r}
+fit <- auto.arima(ret.FTSE, ic = "aic", stepwise = FALSE, approximation = FALSE)
+summary(fit)
+
+#Residuals of ARIMA model
+checkresiduals(fit)
+
+#checking autocorrelation of residuals and squared residuals of ARIMA model
+residuals = residuals(fit)
+Box.test(residuals, lag = 10, type = "Ljung-Box", fitdf = 0)
+Box.test(residuals^2, lag = 10, type = "Ljung-Box", fitdf = 0)
+```
+ARIMA(2,0,3) was suggested by the auto.arima function. The residuals of the model indicates white noise and autocorrelation. Also, autocorrelation is still present in squared residuals, which means there is volatility clustering. 
+
+The returns will exhibit heteroscedasticity.
+
+```{r}
+#check for ARCH effect (volatiltiy clustering)
+ArchTest(ret.FTSE)
+```
+The ARCH effect test shows a p-value close to zero, hence we reject the null hypothesis of no ARCH effect.
+
+Since, autocorrelation is still present in residuals of ARIMA model, we can try to improve the ARIMA model. We can also try to model ARIMA and GARCH together to address the autocorrelation and volatility clustering.
+
+**Model using ARIMA-GARCH model**
+
+```{r}
+#Checking for the lags for GARCH
+acf(residuals^2, main="ACF of Squared Residuals")
+pacf(residuals^2, main="PACF of Squared Residuals")
+```
+The ACF and PACF plot show significant lags. ACF lags are significant up to lag 18 whereas PACF lags are significant up to lag 8. This indicates persistent volatility clustering. 
+
+We would fit different GARCH models and select the best.
+
+```{r}
+#Different GARCH model specification
+spec1 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 1)),
+  mean.model = list(armaOrder = c(3, 2), include.mean = FALSE),
+  distribution.model = "std")
+spec2 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(2, 1)),
+  mean.model = list(armaOrder = c(3, 2), include.mean = FALSE),
+  distribution.model = "std")
+spec3 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(1, 2)),
+  mean.model = list(armaOrder = c(3, 2), include.mean = FALSE),
+  distribution.model = "std")
+spec4 <- ugarchspec(
+  variance.model = list(model = "sGARCH", garchOrder = c(2, 2)),
+  mean.model = list(armaOrder = c(3, 2), include.mean = FALSE),
+  distribution.model = "std")
+
+#Fit the ARIMA-GARCH model
+fit.garch.1 <- ugarchfit(spec = spec1, data = ret.FTSE)
+fit.garch.2 <- ugarchfit(spec = spec2, data = ret.FTSE)
+fit.garch.3 <- ugarchfit(spec = spec3, data = ret.FTSE)
+fit.garch.4 <- ugarchfit(spec = spec4, data = ret.FTSE)
+
+#Model selection using information critarion
+model.list = list("garch(1,1)" = fit.garch.1,
+                  "garch(2,1)" = fit.garch.2,
+                  "garch(1,2)" = fit.garch.3,
+                  "garch(2,2)" = fit.garch.4)
+model.mat = sapply(model.list, infocriteria)
+rownames(model.mat) = rownames(infocriteria(fit.garch.1))
+model.mat
+```
+GARCH(1,2) has the best fit. 
+
+```{r}
+#Diagnostic checking of residuals of ARIMA-GARCH model
+residuals.2 <- residuals(fit.garch.3, standardize = TRUE)
+
+Box.test(residuals.2, lag = 10, type = "Ljung-Box", fitdf = 0)
+Box.test(residuals.2^2, lag = 10, type = "Ljung-Box", fitdf = 0)
+```
+The autocorrelation in the residuals and squared residuals show p-value greater than 0.05, no autocorrelation. This suggests that the model captured the volatility clustering as well as the linear dependencies.
+
+**forecasting garch(1,2)**
+
+```{r}
+forecast <- ugarchforecast(fit.garch.3, n.ahead = 50)
+plot(forecast, which = 1)
+plot(forecast, which = 3)
+```
